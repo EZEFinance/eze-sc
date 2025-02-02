@@ -1,124 +1,100 @@
-// SPDX-License-Identifier: UNLICENSED
-pragma solidity ^0.8.13;
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
 
-import { UniversalRouter } from "@uniswap/universal-router/contracts/UniversalRouter.sol";
-import { Commands } from "@uniswap/universal-router/contracts/libraries/Commands.sol";
-import { IPoolManager } from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
-import { IV4Router } from "@uniswap/v4-periphery/src/interfaces/IV4Router.sol";
-import { Actions } from "@uniswap/v4-periphery/src/libraries/Actions.sol";
-import { IPermit2 } from "@uniswap/permit2/src/interfaces/IPermit2.sol";
-import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import { SafeERC20 } from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import {BaseHook} from "@uniswap/v4-periphery/src/base/hooks/BaseHook.sol";
+import {IPoolManager} from "@uniswap/v4-core/src/interfaces/IPoolManager.sol";
+import {Hooks, IHooks} from "@uniswap/v4-core/src/interfaces/IHooks.sol";
+import {FixedPointMathLib} from "solmate/utils/FixedPointMathLib.sol";
 
-contract EZEFinance {
-    using SafeERC20 for IERC20;
+contract MEVProtectionHook is BaseHook {
+    using FixedPointMathLib for uint256;
 
-    UniversalRouter public immutable router;
-    mapping(address => mapping(address => uint256)) private balances;
+    uint256 public constant BASE_MEV_COOLDOWN_TIME = 30;
+    uint256 public constant BASE_MEV_COOLDOWN_BLOCKS = 2;
+    uint24 public constant MIN_FEE = 5; // 0.05%
+    uint24 public constant MAX_FEE = 100; // 1.0%
+    uint24 public constant FEE_CAPTURE_RATE = 650; // 65% in basis points
+    uint256 public constant FEE_SCALING_FACTOR = 1e12;
 
-    event Deposited(address indexed token, address indexed from, address indexed to, uint256 amount);
-    event Withdrawn(address indexed token, address indexed from, address indexed to, uint256 amount);
-    event Swapped(
-        address indexed tokenIn,
-        address indexed tokenOut,
-        address indexed user,
-        uint256 amountIn,
-        uint256 amountOut
-    );
-
-    constructor(address _router) {
-        router = UniversalRouter(_router);
+    struct FeeState {
+        int24 currentTick;
+        uint64 lastUpdated;
+        uint128 volatilityEMA;
+        uint128 swapSizeEMA;
+        uint64 lastBlock;
     }
 
-    function deposit(
-        address token,
-        address from,
-        address to,
-        uint256 amount
-    ) external {
-        require(token != address(0), "Invalid token address");
-        require(from != address(0), "Invalid from address");
-        require(to != address(0), "Invalid to address");
-        require(amount > 0, "Amount must be greater than 0");
+    mapping(bytes32 => FeeState) public feeStates;
 
-        IERC20(token).safeTransferFrom(from, address(this), amount);
-        balances[token][to] += amount;
-        
-        emit Deposited(token, from, to, amount);
+    constructor(IPoolManager _poolManager) BaseHook(_poolManager) {}
+
+    function getHooksCalls() public pure override returns (Hooks.Calls memory) {
+        return
+            Hooks.Calls({
+                beforeInitialize: false,
+                afterInitialize: false,
+                beforeModifyPosition: false,
+                afterSwap: false,
+                beforeDonate: false,
+                afterDonate: false
+            });
     }
 
-    function withdraw(
-        address token,
-        address from,
-        address to,
-        uint256 amount
-    ) external {
-        require(token != address(0), "Invalid token address");
-        require(from != address(0), "Invalid from address");
-        require(to != address(0), "Invalid to address");
-        require(amount > 0, "Amount must be greater than 0");
-        require(balances[token][from] >= amount, "Insufficient balance");
-        require(msg.sender == from || msg.sender == to, "Unauthorized");
+    function beforeSwap(
+        address,
+        IPoolManager.PoolKey calldata key,
+        IPoolManager.SwapParams calldata params,
+        bytes calldata
+    ) external override onlyPoolManager returns (bytes4) {
+        bytes32 poolId = keccak256(abi.encode(key));
+        FeeState storage fee = feeStates[poolId];
 
-        balances[token][from] -= amount;
-        IERC20(token).safeTransfer(to, amount);
-        
-        emit Withdrawn(token, from, to, amount);
-    }
+        // Adaptive cooldown with sigmoid decay
+        uint256 cooldownTime = BASE_MEV_COOLDOWN_TIME +
+            (fee.volatilityEMA * BASE_MEV_COOLDOWN_TIME) /
+            (1e6 + fee.volatilityEMA);
 
-    function getBalance(address token, address account) external view returns (uint256) {
-        return balances[token][account];
-    }
+        if (block.timestamp < fee.lastUpdated + cooldownTime) {
+            revert("MEV cooldown active");
+        }
 
-    function swapExactInputSingle(
-        address tokenIn,
-        address tokenOut,
-        PoolKey calldata key,
-        uint128 amountIn,
-        uint128 minAmountOut
-    ) external returns (uint256 amountOut) {
-        require(tokenIn != address(0), "Invalid input token");
-        require(tokenOut != address(0), "Invalid output token");
-        require(tokenIn == address(key.currency0), "Token in mismatch with pool");
-        require(tokenOut == address(key.currency1), "Token out mismatch with pool");
-        require(balances[tokenIn][msg.sender] >= amountIn, "Insufficient balance");
-        
-        balances[tokenIn][msg.sender] -= amountIn;
-
-        bytes memory commands = abi.encodePacked(uint8(Commands.V4_SWAP));
-        bytes[] memory inputs = new bytes[](1);
-
-        bytes memory actions = abi.encodePacked(
-            uint8(Actions.SWAP_EXACT_IN_SINGLE),
-            uint8(Actions.SETTLE_ALL),
-            uint8(Actions.TAKE_ALL)
+        // Update metrics
+        int24 currentTick = poolManager.getCurrentTick(key);
+        int24 tickDiff = _abs(currentTick - fee.currentTick);
+        uint128 newVol = uint128(
+            (fee.volatilityEMA * 9 + uint128(tickDiff)) / 10
         );
 
-        bytes[] memory params = new bytes[](3);
-        params[0] = abi.encode(
-            IV4Router.ExactInputSingleParams({
-                poolKey: key,
-                zeroForOne: true,
-                amountIn: amountIn,
-                amountOutMinimum: minAmountOut,
-                sqrtPriceLimitX96: uint160(0),
-                hookData: bytes("")
-            })
+        uint128 swapSize = uint128(
+            params.amountSpecified > 0
+                ? uint256(params.amountSpecified)
+                : uint256(-params.amountSpecified)
         );
-        params[1] = abi.encode(tokenIn, amountIn);
-        params[2] = abi.encode(tokenOut, minAmountOut);
+        uint128 newSwap = uint128((fee.swapSizeEMA * 9 + swapSize) / 10);
 
-        inputs[0] = abi.encode(actions, params);
+        // Calculate MEV-sensitive fee
+        uint256 mevOpportunity = uint256(newVol) * swapSize;
+        uint256 targetFee = MIN_FEE +
+            (mevOpportunity * FEE_CAPTURE_RATE) /
+            FEE_SCALING_FACTOR;
 
-        router.execute(commands, inputs, block.timestamp);
+        uint24 newFee = uint24(targetFee > MAX_FEE ? MAX_FEE : targetFee);
 
-        amountOut = IERC20(tokenOut).balanceOf(address(this));
-        require(amountOut >= minAmountOut, "Insufficient output amount");
+        // Single SSTORE update
+        feeStates[poolId] = FeeState({
+            currentTick: currentTick,
+            lastUpdated: uint64(block.timestamp),
+            volatilityEMA: newVol,
+            swapSizeEMA: newSwap,
+            lastBlock: uint64(block.number)
+        });
 
-        balances[tokenOut][msg.sender] += amountOut;
-        
-        emit Swapped(tokenIn, tokenOut, msg.sender, amountIn, amountOut);
-        
-        return amountOut;
+        poolManager.setFee(key, newFee);
+
+        return this.beforeSwap.selector;
+    }
+
+    function _abs(int24 value) internal pure returns (int24) {
+        return value >= 0 ? value : -value;
     }
 }
