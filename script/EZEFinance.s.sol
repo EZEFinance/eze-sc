@@ -6,6 +6,7 @@ import "../src/EZEFinance.sol";
 import "../src/MockUSDC.sol";
 import "../src/MockUNI.sol";
 import "../src/MockStakingUNI.sol";
+import "../src/MockStakingUSDC.sol";
 
 contract DeployEZEFinance is Script {
     function run() external {
@@ -50,6 +51,19 @@ contract DeployEZEFinance is Script {
             maxAmountStaked
         );
         console2.log("MockStakingUNI deployed to:", address(mockStakingUNI));
+
+        // Deploy MockStakingUSDC with MockUSDC as staking token
+        uint8 fixedAPY_USDC = 20; // 10% APY
+        uint256 durationInDays_USDC = 1; // 1 Day staking period
+        uint256 maxAmountStaked_USDC = 100_000 * 10**6; // 100,000 MockUSDC max stake
+
+        MockStakingUSDC mockStakingUSDC = new MockStakingUSDC(
+            address(mockUSDC), 
+            fixedAPY_USDC, 
+            durationInDays_USDC, 
+            maxAmountStaked_USDC
+        );
+        console2.log("MockStakingUSDC deployed to:", address(mockStakingUSDC));
 
         vm.stopBroadcast();
     }
