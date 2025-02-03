@@ -1,11 +1,15 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Test.sol";
+import "../lib/forge-std/src/Test.sol";
 import "../src/EZEFinance.sol";
 import "./MockUSDC.t.sol";
 import "./MockUNI.t.sol";  
-import "./MockUniswapRouter.t.sol"; 
+import "./MockUniswapRouter.t.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+
+error OwnableUnauthorizedAccount(address account);
+error EnforcedPause();
 
 contract EZEFinanceTest is Test {
     EZEFinance public ezeFinance;
@@ -44,13 +48,29 @@ contract EZEFinanceTest is Test {
         
         UNI.transfer(address(mockRouter), TEST_UNI_AMOUNT * 10); 
     }
+
+    function test_RevertWhen_DepositWhenPaused() public {
+        ezeFinance.pause();
+        
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(EnforcedPause.selector));
+        ezeFinance.deposit(address(USDC), user1, user2, TEST_USDC_AMOUNT);
+        vm.stopPrank();
+    }
     
-    function testDeployment() public {
+    function test_RevertWhen_UnauthorizedPause() public {
+        vm.startPrank(user1);
+        vm.expectRevert(abi.encodeWithSelector(OwnableUnauthorizedAccount.selector, user1));
+        ezeFinance.pause();
+        vm.stopPrank();
+    }
+    
+    function test_Deployment() public view {
         assertEq(address(ezeFinance.swapRouter()), address(mockRouter));
         assertEq(ezeFinance.owner(), owner);
     }
     
-    function testDeposit() public {
+    function test_Deposit() public {
         vm.startPrank(user1);
         USDC.approve(address(ezeFinance), TEST_USDC_AMOUNT);
         
@@ -62,13 +82,29 @@ contract EZEFinanceTest is Test {
         vm.stopPrank();
     }
     
-    function testFailDepositWithZeroAmount() public {
-        vm.prank(user1);
+    function test_RevertWhen_DepositZeroAmount() public {
+        vm.startPrank(user1);
         vm.expectRevert("Invalid amount");
         ezeFinance.deposit(address(USDC), user1, user2, 0);
+        vm.stopPrank();
     }
     
-    function testWithdraw() public {
+    function test_RevertWhen_DepositInvalidToken() public {
+        vm.startPrank(user1);
+        vm.expectRevert("Invalid token address");
+        ezeFinance.deposit(address(0), user1, user2, TEST_USDC_AMOUNT);
+        vm.stopPrank();
+    }
+    
+    function test_PauseAndUnpause() public {
+        ezeFinance.pause();
+        assertTrue(ezeFinance.paused());
+        
+        ezeFinance.unpause();
+        assertFalse(ezeFinance.paused());
+    }
+    
+    function test_Withdraw() public {
         vm.startPrank(user1);
         USDC.approve(address(ezeFinance), TEST_USDC_AMOUNT);
         ezeFinance.deposit(address(USDC), user1, user2, TEST_USDC_AMOUNT);
@@ -85,15 +121,14 @@ contract EZEFinanceTest is Test {
         vm.stopPrank();
     }
     
-    function testSwap() public {
+    function test_Swap() public {
         uint256 expectedOutput = TEST_UNI_AMOUNT * 95 / 100;
         mockRouter.setExpectedOutput(expectedOutput);
         
         vm.startPrank(user1);
-        
         USDC.approve(address(ezeFinance), TEST_USDC_AMOUNT);
         
-        vm.expectEmit(true, true, true, true, address(ezeFinance));
+        vm.expectEmit(true, true, true, true);
         emit Swap(address(USDC), address(UNI), user1, TEST_USDC_AMOUNT, expectedOutput);
         
         uint256 amountOut = ezeFinance.swap(
@@ -109,8 +144,8 @@ contract EZEFinanceTest is Test {
         vm.stopPrank();
     }
     
-    function testFailSwapSameToken() public {
-        vm.prank(user1);
+    function test_RevertWhen_SwapSameToken() public {
+        vm.startPrank(user1);
         vm.expectRevert("Same tokens");
         ezeFinance.swap(
             address(USDC),
@@ -119,27 +154,6 @@ contract EZEFinanceTest is Test {
             TEST_USDC_AMOUNT,
             0
         );
-    }
-    
-    function testPause() public {
-        ezeFinance.pause();
-        assertTrue(ezeFinance.paused());
-        
-        ezeFinance.unpause();
-        assertFalse(ezeFinance.paused());
-    }
-    
-    function testFailPauseUnauthorized() public {
-        vm.prank(user1);
-        vm.expectRevert("Ownable: caller is not the owner");
-        ezeFinance.pause();
-    }
-    
-    function testFailDepositWhenPaused() public {
-        ezeFinance.pause();
-        
-        vm.prank(user1);
-        vm.expectRevert("Pausable: paused");
-        ezeFinance.deposit(address(USDC), user1, user2, TEST_USDC_AMOUNT);
+        vm.stopPrank();
     }
 }

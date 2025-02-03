@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.20;
 
-import "forge-std/Script.sol";
+import "../lib/forge-std/src/Script.sol";
 import "../src/EZEFinance.sol";
 import "../src/MockUSDC.sol";
 import "../src/MockUNI.sol";
+import "../src/MockStakingUNI.sol";
 
 contract DeployEZEFinance is Script {
     function run() external {
@@ -25,15 +26,31 @@ contract DeployEZEFinance is Script {
         
         vm.startBroadcast(deployerPrivateKey);
         
+        // Deploy MockUSDC
         MockUSDC mockUSDC = new MockUSDC();
         console2.log("MockUSDC deployed to:", address(mockUSDC));
         
+        // Deploy MockUNI
         MockUNI mockUNI = new MockUNI();
         console2.log("MockUNI deployed to:", address(mockUNI));
         
+        // Deploy EZEFinance
         EZEFinance ezeFinance = new EZEFinance(routerAddress);
         console2.log("EZEFinance deployed to:", address(ezeFinance));
-        
+
+        // Deploy MockStakingUNI with MockUNI as staking token
+        uint8 fixedAPY = 10; // 10% APY
+        uint256 durationInDays = 365; // 1 Year staking period
+        uint256 maxAmountStaked = 100_000 * 10**18; // 100,000 MockUNI max stake
+
+        MockStakingUNI mockStakingUNI = new MockStakingUNI(
+            address(mockUNI), 
+            fixedAPY, 
+            durationInDays, 
+            maxAmountStaked
+        );
+        console2.log("MockStakingUNI deployed to:", address(mockStakingUNI));
+
         vm.stopBroadcast();
     }
 }
