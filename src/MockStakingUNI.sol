@@ -7,6 +7,7 @@ contract MockStakingUNI {
     IERC20 public immutable mockUNI;
 
     event EmergencyWithdraw(address indexed withdrawer, uint256 amount);
+    event PartialWithdraw(address indexed withdrawer, uint256 amount);
     event WithdrawAll(address indexed withdrawer, uint256 amount);
     event Staked(address indexed staker, uint256 amount, uint256 durationInDays);
     event APYUpdated(uint8 oldAPY, uint8 newAPY);
@@ -100,7 +101,33 @@ contract MockStakingUNI {
         emit EmergencyWithdraw(msg.sender, finalAmount);
     }
 
-    function withdraw() external {
+    function withdraw(uint256 _amount) external {
+        require(msg.sender != address(0), "Zero address detected");
+        require(stakes[msg.sender].isValid, "User cannot withdraw");
+        require(block.timestamp >= stakes[msg.sender].registrationTimestamp + stakes[msg.sender].numberOfDays * 1 days, "Stake period not ended");
+        require(_amount <= stakes[msg.sender].amountStaked, "Withdrawal amount exceeds staked balance");
+
+        // Calculate pro-rata reward based on withdrawal amount
+        uint256 totalStaked = stakes[msg.sender].amountStaked;
+        uint256 withdrawPercentage = (_amount * 100) / totalStaked;
+        uint256 reward = (_calculateReward(msg.sender, stakes[msg.sender].numberOfDays) * withdrawPercentage) / 100;
+        uint256 totalToPay = _amount + reward;
+
+        // Update stake details
+        stakes[msg.sender].amountStaked -= _amount;
+        totalAmountStaked -= _amount;
+
+        // If all funds withdrawn, mark stake as invalid
+        if (stakes[msg.sender].amountStaked == 0) {
+            stakes[msg.sender].isValid = false;
+        }
+
+        mockUNI.transfer(msg.sender, totalToPay);
+
+        emit PartialWithdraw(msg.sender, totalToPay);
+    }
+
+    function withdrawAll() external {
         require(msg.sender != address(0), "Zero address detected");
         require(stakes[msg.sender].isValid, "User cannot withdraw");
         require(block.timestamp >= stakes[msg.sender].registrationTimestamp + stakes[msg.sender].numberOfDays * 1 days, "Stake period not ended");

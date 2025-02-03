@@ -41,7 +41,7 @@ contract DeployEZEFinance is Script {
 
         // Deploy MockStakingUNI with MockUNI as staking token
         uint8 fixedAPY = 10; // 10% APY
-        uint256 durationInDays = 365; // 1 Year staking period
+        uint256 durationInDays = 3; // 3 day staking period
         uint256 maxAmountStaked = 100_000 * 10**18; // 100,000 MockUNI max stake
 
         MockStakingUNI mockStakingUNI = new MockStakingUNI(
