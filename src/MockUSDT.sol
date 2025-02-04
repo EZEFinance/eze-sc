@@ -6,13 +6,13 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Permit.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 
-contract MockUNI is ERC20, ERC20Permit, ERC20Burnable, Ownable {
+contract MockUSDT is ERC20, ERC20Permit, ERC20Burnable, Ownable {
     uint8 private _decimals = 6;
-    string private constant _tokenURI = "https://cryptologos.cc/logos/uniswap-uni-logo.png";
+    string private constant _tokenURI = "https://cryptologos.cc/logos/tether-usdt-logo.png";
 
     constructor() 
-        ERC20("Uniswap", "UNI") 
-        ERC20Permit("Uniswap")
+        ERC20("USDT", "USDT") 
+        ERC20Permit("USDT")
         Ownable(msg.sender)
     {}
 

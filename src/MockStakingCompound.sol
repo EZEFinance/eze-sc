@@ -3,8 +3,8 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract MockStakingUNI {
-    IERC20 public immutable mockUNI;
+contract MockStakingCompound {
+    IERC20 public immutable mockUSDC;
 
     event EmergencyWithdraw(address indexed withdrawer, uint256 amount);
     event PartialWithdraw(address indexed withdrawer, uint256 amount);
@@ -28,13 +28,13 @@ contract MockStakingUNI {
     uint256 public startStake;
 
     constructor(
-        address _mockUNI,
+        address _mockUSDC,
         uint8 _fixedAPY,
         uint256 _durationInDays,
         uint256 _maxAmountStaked
     ) {
-        require(_mockUNI != address(0), "Invalid token address");
-        mockUNI = IERC20(_mockUNI);
+        require(_mockUSDC != address(0), "Invalid token address");
+        mockUSDC = IERC20(_mockUSDC);
         owner = msg.sender;
         fixedAPY = _fixedAPY;
         durationInDays = _durationInDays;
@@ -68,7 +68,7 @@ contract MockStakingUNI {
         require(_checkDuration(), "Staking period has ended");
         require(totalAmountStaked + _amount <= maxAmountStaked, "Total stake limit reached");
 
-        mockUNI.transferFrom(msg.sender, address(this), _amount);
+        mockUSDC.transferFrom(msg.sender, address(this), _amount);
         totalAmountStaked += _amount;
 
         if (stakes[msg.sender].isValid) {
@@ -96,7 +96,7 @@ contract MockStakingUNI {
         }
         totalAmountStaked -= _amount;
         
-        mockUNI.transfer(msg.sender, finalAmount);
+        mockUSDC.transfer(msg.sender, finalAmount);
         
         emit EmergencyWithdraw(msg.sender, finalAmount);
     }
@@ -107,22 +107,19 @@ contract MockStakingUNI {
         require(block.timestamp >= stakes[msg.sender].registrationTimestamp + stakes[msg.sender].numberOfDays * 1 days, "Stake period not ended");
         require(_amount <= stakes[msg.sender].amountStaked, "Withdrawal amount exceeds staked balance");
 
-        // Calculate pro-rata reward based on withdrawal amount
         uint256 totalStaked = stakes[msg.sender].amountStaked;
         uint256 withdrawPercentage = (_amount * 100) / totalStaked;
         uint256 reward = (_calculateReward(msg.sender, stakes[msg.sender].numberOfDays) * withdrawPercentage) / 100;
         uint256 totalToPay = _amount + reward;
 
-        // Update stake details
         stakes[msg.sender].amountStaked -= _amount;
         totalAmountStaked -= _amount;
 
-        // If all funds withdrawn, mark stake as invalid
         if (stakes[msg.sender].amountStaked == 0) {
             stakes[msg.sender].isValid = false;
         }
 
-        mockUNI.transfer(msg.sender, totalToPay);
+        mockUSDC.transfer(msg.sender, totalToPay);
 
         emit PartialWithdraw(msg.sender, totalToPay);
     }
@@ -139,7 +136,7 @@ contract MockStakingUNI {
         stakes[msg.sender].amountStaked = 0;
         stakes[msg.sender].isValid = false;
 
-        mockUNI.transfer(msg.sender, totalToPay);
+        mockUSDC.transfer(msg.sender, totalToPay);
 
         emit WithdrawAll(msg.sender, totalToPay);
     }
@@ -157,9 +154,9 @@ contract MockStakingUNI {
         uint256 oneYearAfter = startStake + durationInDays * 1 days + 365 days;
         require(block.timestamp > oneYearAfter, "Not yet time to withdraw");
 
-        mockUNI.transfer(owner, mockUNI.balanceOf(address(this)));
+        mockUSDC.transfer(owner, mockUSDC.balanceOf(address(this)));
 
-        emit WithdrawAll(owner, mockUNI.balanceOf(address(this)));
+        emit WithdrawAll(owner, mockUSDC.balanceOf(address(this)));
     }
 
     receive() external payable {}
