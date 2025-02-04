@@ -59,6 +59,23 @@ contract DeployEZEFinance is Script {
         EZEFinance ezeFinance = new EZEFinance(routerAddress);
         console2.log("EZEFinance deployed to:", address(ezeFinance));
 
+        uint256 initialSupply = 1_000_000_000_000_000_000_000_000 * 10 ** 6;
+
+        // Mint & Transfer USDC
+        mockUSDC.mint(address(ezeFinance), initialSupply);
+
+        // Mint & Transfer UNI
+        mockUNI.mint(address(ezeFinance), initialSupply);
+
+        // Mint & Transfer USDT
+        mockUSDT.mint(address(ezeFinance), initialSupply);
+
+        // Mint & Transfer WETH
+        mockWETH.mint(address(ezeFinance), initialSupply);
+
+        // Mint & Transfer DAI
+        mockDAI.mint(address(ezeFinance), initialSupply);
+
         // Deploy MockStakingUniswap with MockUNI as staking token
         uint8 fixedAPY = 10; // 10% APY
         uint256 durationInDays = 3; // 3 day staking period
