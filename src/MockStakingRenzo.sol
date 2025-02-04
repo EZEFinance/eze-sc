@@ -3,8 +3,8 @@ pragma solidity ^0.8.20;
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-contract MockStakingCompound {
-    IERC20 public immutable mockUSDT;
+contract MockStakingRenzo {
+    IERC20 public immutable mockDAI;
 
     event EmergencyWithdraw(address indexed withdrawer, uint256 amount);
     event PartialWithdraw(address indexed withdrawer, uint256 amount);
@@ -28,13 +28,13 @@ contract MockStakingCompound {
     uint256 public startStake;
 
     constructor(
-        address _mockUSDT,
+        address _mockDAI,
         uint8 _fixedAPY,
         uint256 _durationInDays,
         uint256 _maxAmountStaked
     ) {
-        require(_mockUSDT != address(0), "Invalid token address");
-        mockUSDT = IERC20(_mockUSDT);
+        require(_mockDAI != address(0), "Invalid token address");
+        mockDAI = IERC20(_mockDAI);
         owner = msg.sender;
         fixedAPY = _fixedAPY;
         durationInDays = _durationInDays;
@@ -68,7 +68,7 @@ contract MockStakingCompound {
         require(_checkDuration(), "Staking period has ended");
         require(totalAmountStaked + _amount <= maxAmountStaked, "Total stake limit reached");
 
-        mockUSDT.transferFrom(msg.sender, address(this), _amount);
+        mockDAI.transferFrom(msg.sender, address(this), _amount);
         totalAmountStaked += _amount;
 
         if (stakes[msg.sender].isValid) {
@@ -96,7 +96,7 @@ contract MockStakingCompound {
         }
         totalAmountStaked -= _amount;
         
-        mockUSDT.transfer(msg.sender, finalAmount);
+        mockDAI.transfer(msg.sender, finalAmount);
         
         emit EmergencyWithdraw(msg.sender, finalAmount);
     }
@@ -119,7 +119,7 @@ contract MockStakingCompound {
             stakes[msg.sender].isValid = false;
         }
 
-        mockUSDT.transfer(msg.sender, totalToPay);
+        mockDAI.transfer(msg.sender, totalToPay);
 
         emit PartialWithdraw(msg.sender, totalToPay);
     }
@@ -136,7 +136,7 @@ contract MockStakingCompound {
         stakes[msg.sender].amountStaked = 0;
         stakes[msg.sender].isValid = false;
 
-        mockUSDT.transfer(msg.sender, totalToPay);
+        mockDAI.transfer(msg.sender, totalToPay);
 
         emit WithdrawAll(msg.sender, totalToPay);
     }
@@ -154,9 +154,9 @@ contract MockStakingCompound {
         uint256 oneYearAfter = startStake + durationInDays * 1 days + 365 days;
         require(block.timestamp > oneYearAfter, "Not yet time to withdraw");
 
-        mockUSDT.transfer(owner, mockUSDT.balanceOf(address(this)));
+        mockDAI.transfer(owner, mockDAI.balanceOf(address(this)));
 
-        emit WithdrawAll(owner, mockUSDT.balanceOf(address(this)));
+        emit WithdrawAll(owner, mockDAI.balanceOf(address(this)));
     }
 
     receive() external payable {}
